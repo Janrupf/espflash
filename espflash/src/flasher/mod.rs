@@ -357,10 +357,11 @@ impl Flasher {
         port_info: UsbPortInfo,
         speed: Option<u32>,
         use_stub: bool,
+        use_compression: bool,
     ) -> Result<Self, Error> {
         // Establish a connection to the device using the default baud rate of 115,200
         // and timeout of 3 seconds.
-        let mut connection = Connection::new(serial, port_info);
+        let mut connection = Connection::new(serial, port_info, use_compression);
         connection.begin()?;
         connection.set_timeout(DEFAULT_TIMEOUT)?;
 

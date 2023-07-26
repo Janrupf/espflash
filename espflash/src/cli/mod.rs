@@ -58,6 +58,12 @@ pub struct ConnectArgs {
     /// Do not use the RAM stub for loading
     #[arg(long)]
     pub no_stub: bool,
+    /// Don't compress the application while flashing
+    ///
+    /// This is useful to work around errors when running the
+    /// FlashDeflateBegin command on some devices.
+    #[arg(long)]
+    pub dont_compress: bool,
 }
 
 /// Generate completions for the given shell
@@ -203,6 +209,7 @@ pub fn connect(args: &ConnectArgs, config: &Config) -> Result<Flasher> {
         port_info,
         args.baud,
         !args.no_stub,
+        !args.dont_compress,
     )?)
 }
 

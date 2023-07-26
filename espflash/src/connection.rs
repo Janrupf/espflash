@@ -37,14 +37,17 @@ pub struct Connection {
     serial: Interface,
     port_info: UsbPortInfo,
     decoder: SlipDecoder,
+    /// Determines whether to use compression (if available) when flashing
+    use_compression: bool,
 }
 
 impl Connection {
-    pub fn new(serial: Interface, port_info: UsbPortInfo) -> Self {
+    pub fn new(serial: Interface, port_info: UsbPortInfo, use_compression: bool) -> Self {
         Connection {
             serial,
             port_info,
             decoder: SlipDecoder::new(),
+            use_compression,
         }
     }
 
@@ -290,6 +293,11 @@ impl Connection {
     /// Get the USB PID of the serial port
     pub fn get_usb_pid(&self) -> Result<u16, Error> {
         Ok(self.port_info.pid)
+    }
+
+    /// Determine whether to use compression when flashing
+    pub fn should_use_compression_if_available(&self) -> bool {
+        self.use_compression
     }
 }
 
