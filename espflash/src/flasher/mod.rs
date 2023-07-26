@@ -407,7 +407,9 @@ impl Flasher {
     }
 
     pub fn disable_watchdog(&mut self) -> Result<(), Error> {
-        let mut target = self.chip.flash_target(self.spi_params, self.use_stub);
+        let mut target = self
+            .chip
+            .flash_target(self.spi_params, self.flash_size, self.use_stub);
         target.begin(&mut self.connection).flashing()?;
         Ok(())
     }
@@ -731,7 +733,9 @@ impl Flasher {
     ) -> Result<(), Error> {
         let image = ElfFirmwareImage::try_from(elf_data)?;
 
-        let mut target = self.chip.flash_target(self.spi_params, self.use_stub);
+        let mut target = self
+            .chip
+            .flash_target(self.spi_params, self.flash_size, self.use_stub);
         target.begin(&mut self.connection).flashing()?;
 
         // The ESP8266 does not have readable major/minor revision numbers, so we have
@@ -784,7 +788,9 @@ impl Flasher {
             data: Cow::from(data),
         };
 
-        let mut target = self.chip.flash_target(self.spi_params, self.use_stub);
+        let mut target = self
+            .chip
+            .flash_target(self.spi_params, self.flash_size, self.use_stub);
         target.begin(&mut self.connection).flashing()?;
         target.write_segment(&mut self.connection, segment, &mut progress)?;
         target.finish(&mut self.connection, true).flashing()?;

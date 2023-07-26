@@ -5,6 +5,7 @@ use flate2::{
     Compression,
 };
 
+use crate::flasher::FlashSize;
 use crate::{
     command::{Command, CommandType},
     connection::{Connection, USB_SERIAL_JTAG_PID},
@@ -19,14 +20,21 @@ use crate::{
 pub struct Esp32Target {
     chip: Chip,
     spi_attach_params: SpiAttachParams,
+    flash_size: FlashSize,
     use_stub: bool,
 }
 
 impl Esp32Target {
-    pub fn new(chip: Chip, spi_attach_params: SpiAttachParams, use_stub: bool) -> Self {
+    pub fn new(
+        chip: Chip,
+        spi_attach_params: SpiAttachParams,
+        flash_size: FlashSize,
+        use_stub: bool,
+    ) -> Self {
         Esp32Target {
             chip,
             spi_attach_params,
+            flash_size,
             use_stub,
         }
     }
@@ -34,6 +42,18 @@ impl Esp32Target {
 
 impl FlashTarget for Esp32Target {
     fn begin(&mut self, connection: &mut Connection) -> Result<(), Error> {
+        connection.with_timeout(CommandType::SpiSetParams.timeout(), |connection| {
+            connection.command(Command::SpiSetParams {
+                // These values are from esptool, most of them are just hardcoded
+                flash_id: 0,
+                size: self.flash_size.size(),
+                block_size: 64 * 1024,
+                sector_size: FLASH_SECTOR_SIZE as u32,
+                page_size: 256,
+                status_mask: 0xFFFF,
+            })
+        })?;
+
         connection.with_timeout(CommandType::SpiAttach.timeout(), |connection| {
             let command = if self.use_stub {
                 Command::SpiAttachStub {

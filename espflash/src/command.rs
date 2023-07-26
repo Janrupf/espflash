@@ -120,6 +120,14 @@ pub enum Command<'a> {
     ReadReg {
         address: u32,
     },
+    SpiSetParams {
+        flash_id: u32,
+        size: u32,
+        block_size: u32,
+        sector_size: u32,
+        page_size: u32,
+        status_mask: u32,
+    },
     SpiAttach {
         spi_params: SpiAttachParams,
     },
@@ -169,6 +177,7 @@ impl<'a> Command<'a> {
             Command::Sync => CommandType::Sync,
             Command::WriteReg { .. } => CommandType::WriteReg,
             Command::ReadReg { .. } => CommandType::ReadReg,
+            Command::SpiSetParams { .. } => CommandType::SpiSetParams,
             Command::SpiAttach { .. } => CommandType::SpiAttach,
             Command::SpiAttachStub { .. } => CommandType::SpiAttach,
             Command::ChangeBaud { .. } => CommandType::ChangeBaud,
@@ -292,6 +301,34 @@ impl<'a> Command<'a> {
             Command::ReadReg { address } => {
                 write_basic(writer, &address.to_le_bytes(), 0)?;
             }
+            Command::SpiSetParams {
+                flash_id,
+                size,
+                block_size,
+                sector_size,
+                page_size,
+                status_mask,
+            } => {
+                #[derive(Zeroable, Pod, Copy, Clone, Debug)]
+                #[repr(C)]
+                struct SpiParams {
+                    flash_id: u32,
+                    size: u32,
+                    block_size: u32,
+                    sector_size: u32,
+                    page_size: u32,
+                    status_mask: u32,
+                }
+                let params = SpiParams {
+                    flash_id,
+                    size,
+                    block_size,
+                    sector_size,
+                    page_size,
+                    status_mask,
+                };
+                write_basic(writer, bytes_of(&params), 0)?;
+            }
             Command::SpiAttach { spi_params } => {
                 write_basic(writer, &spi_params.encode(false), 0)?;
             }
@@ -388,7 +425,7 @@ fn begin_command<W: Write>(
         blocks,
         block_size,
         offset,
-        encrypted: 0,
+        encrypted: 1,
     };
 
     let bytes = bytes_of(&params);
