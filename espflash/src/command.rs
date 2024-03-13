@@ -40,6 +40,7 @@ pub enum CommandType {
     // Some commands supported by stub only
     EraseFlash = 0xd0,
     EraseRegion = 0xd1,
+    FlashEncryptData = 0xd4,
 }
 
 impl CommandType {
@@ -84,6 +85,7 @@ pub enum Command<'a> {
         block_size: u32,
         offset: u32,
         supports_encryption: bool,
+        encrypt: bool,
     },
     FlashData {
         data: &'a [u8],
@@ -162,6 +164,12 @@ pub enum Command<'a> {
         offset: u32,
         size: u32,
     },
+    FlashEncryptData {
+        data: &'a [u8],
+        pad_to: usize,
+        pad_byte: u8,
+        sequence: u32,
+    },
 }
 
 impl<'a> Command<'a> {
@@ -187,6 +195,7 @@ impl<'a> Command<'a> {
             Command::FlashDetect => CommandType::FlashDetect,
             Command::EraseFlash { .. } => CommandType::EraseFlash,
             Command::EraseRegion { .. } => CommandType::EraseRegion,
+            Command::FlashEncryptData { .. } => CommandType::FlashEncryptData,
         }
     }
 
@@ -205,6 +214,7 @@ impl<'a> Command<'a> {
                 block_size,
                 offset,
                 supports_encryption,
+                encrypt,
             } => {
                 begin_command(
                     writer,
@@ -213,6 +223,7 @@ impl<'a> Command<'a> {
                     block_size,
                     offset,
                     supports_encryption,
+                    encrypt,
                 )?;
             }
             Command::FlashData {
@@ -240,6 +251,7 @@ impl<'a> Command<'a> {
                     block_size,
                     offset,
                     supports_encryption,
+                    false,
                 )?;
             }
             Command::MemData {
@@ -361,6 +373,7 @@ impl<'a> Command<'a> {
                     block_size,
                     offset,
                     supports_encryption,
+                    false, // Compression and encryption are mutually exclusive
                 )?;
             }
             Command::FlashDeflateData {
@@ -389,6 +402,14 @@ impl<'a> Command<'a> {
                 writer.write_all(&offset.to_le_bytes())?;
                 writer.write_all(&size.to_le_bytes())?;
             }
+            Command::FlashEncryptData {
+                pad_to,
+                pad_byte,
+                data,
+                sequence,
+            } => {
+                data_command(writer, data, pad_to, pad_byte, sequence)?;
+            }
         };
         Ok(())
     }
@@ -410,6 +431,7 @@ fn begin_command<W: Write>(
     block_size: u32,
     offset: u32,
     supports_encryption: bool,
+    encrypt: bool,
 ) -> std::io::Result<()> {
     #[derive(Zeroable, Pod, Copy, Clone, Debug)]
     #[repr(C)]
@@ -425,7 +447,7 @@ fn begin_command<W: Write>(
         blocks,
         block_size,
         offset,
-        encrypted: 1,
+        encrypted: encrypt as u32,
     };
 
     let bytes = bytes_of(&params);
@@ -466,19 +488,16 @@ fn data_command<W: Write>(
         dummy2: 0,
     };
 
-    let mut check = checksum(block_data, CHECKSUM_INIT);
+    let mut cloned_data = block_data.to_vec();
+    cloned_data.extend_from_slice(&vec![pad_byte; pad_length]);
 
-    for _ in 0..pad_length {
-        check = checksum(&[pad_byte], check);
-    }
+    let check = checksum(&cloned_data, CHECKSUM_INIT);
 
-    let total_length = size_of::<BlockParams>() + block_data.len() + pad_length;
+    let total_length = size_of::<BlockParams>() + cloned_data.len();
     writer.write_all(&((total_length as u16).to_le_bytes()))?;
     writer.write_all(&((check as u32).to_le_bytes()))?;
     writer.write_all(bytes_of(&params))?;
-    writer.write_all(block_data)?;
-    for _ in 0..pad_length {
-        writer.write_all(&[pad_byte])?;
-    }
+    writer.write_all(&cloned_data)?;
+
     Ok(())
 }

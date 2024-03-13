@@ -22,6 +22,7 @@ pub struct Esp32Target {
     spi_attach_params: SpiAttachParams,
     flash_size: FlashSize,
     use_stub: bool,
+    encrypt_flash: bool,
 }
 
 impl Esp32Target {
@@ -30,12 +31,14 @@ impl Esp32Target {
         spi_attach_params: SpiAttachParams,
         flash_size: FlashSize,
         use_stub: bool,
+        encrypt_flash: bool,
     ) -> Self {
         Esp32Target {
             chip,
             spi_attach_params,
             flash_size,
             use_stub,
+            encrypt_flash,
         }
     }
 }
@@ -48,7 +51,7 @@ impl FlashTarget for Esp32Target {
                 flash_id: 0,
                 size: self.flash_size.size(),
                 block_size: 64 * 1024,
-                sector_size: FLASH_SECTOR_SIZE as u32,
+                sector_size: 4 * 1024,
                 page_size: 256,
                 status_mask: 0xFFFF,
             })
@@ -145,22 +148,27 @@ impl FlashTarget for Esp32Target {
         let erase_count = (segment.data.len() + FLASH_SECTOR_SIZE - 1) / FLASH_SECTOR_SIZE;
 
         // round up to sector size
-        let erase_size = (erase_count * FLASH_SECTOR_SIZE) as u32;
+        let mut erase_size = (erase_count * FLASH_SECTOR_SIZE) as u32;
+        if self.encrypt_flash {
+            // round up to a multiple of 32
+            erase_size = (erase_size + 31) & !31;
+        } else {
+            // round up to a multiple of 4
+            erase_size = (erase_size + 3) & !3;
+        }
 
-        // On the ESP32 compression should always be available
-        if connection.should_use_compression_if_available() {
+        if connection.should_use_compression() {
             let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
             encoder.write_all(&segment.data)?;
             let compressed = encoder.finish()?;
 
             let block_count = (compressed.len() + flash_write_size - 1) / flash_write_size;
-            let segment_len = segment.data.len();
 
             connection.with_timeout(
                 CommandType::FlashDeflateBegin.timeout_for_size(erase_size),
                 |connection| {
                     connection.command(Command::FlashDeflateBegin {
-                        size: segment_len as u32,
+                        size: segment.data.len() as u32,
                         blocks: block_count as u32,
                         block_size: flash_write_size as u32,
                         offset: addr,
@@ -207,17 +215,16 @@ impl FlashTarget for Esp32Target {
         } else {
             let block_count = (segment.data.len() + flash_write_size - 1) / flash_write_size;
 
-            let size = segment.data.len();
-
             connection.with_timeout(
                 CommandType::FlashBegin.timeout_for_size(erase_size),
                 |connection| {
                     connection.command(Command::FlashBegin {
-                        size: size as u32,
+                        size: erase_size,
                         blocks: block_count as u32,
                         block_size: flash_write_size as u32,
                         offset: addr,
                         supports_encryption: self.chip != Chip::Esp32 && !self.use_stub,
+                        encrypt: self.encrypt_flash,
                     })?;
                     Ok(())
                 },
@@ -231,18 +238,34 @@ impl FlashTarget for Esp32Target {
             }
 
             for (i, block) in chunks.enumerate() {
-                connection.with_timeout(
-                    CommandType::FlashData.timeout_for_size(block.len() as u32),
-                    |connection| {
-                        connection.command(Command::FlashData {
-                            sequence: i as u32,
-                            pad_to: 0,
-                            pad_byte: 0xff,
-                            data: block,
-                        })?;
-                        Ok(())
-                    },
-                )?;
+                if self.encrypt_flash && (self.chip == Chip::Esp32 || self.use_stub) {
+                    // We need to issue a special data command for encrypted flash
+                    connection.with_timeout(
+                        CommandType::FlashEncryptData.timeout_for_size(block.len() as u32),
+                        |connection| {
+                            connection.command(Command::FlashEncryptData {
+                                sequence: i as u32,
+                                pad_to: flash_write_size,
+                                pad_byte: 0xff,
+                                data: block,
+                            })?;
+                            Ok(())
+                        },
+                    )?;
+                } else {
+                    connection.with_timeout(
+                        CommandType::FlashData.timeout_for_size(block.len() as u32),
+                        |connection| {
+                            connection.command(Command::FlashData {
+                                sequence: i as u32,
+                                pad_to: flash_write_size,
+                                pad_byte: 0xff,
+                                data: block,
+                            })?;
+                            Ok(())
+                        },
+                    )?;
+                }
 
                 if let Some(cb) = progress.as_mut() {
                     cb.update(i + 1)
@@ -258,7 +281,7 @@ impl FlashTarget for Esp32Target {
     }
 
     fn finish(&mut self, connection: &mut Connection, reboot: bool) -> Result<(), Error> {
-        if connection.should_use_compression_if_available() {
+        if connection.should_use_compression() {
             connection.with_timeout(CommandType::FlashDeflateEnd.timeout(), |connection| {
                 connection.command(Command::FlashDeflateEnd { reboot: false })
             })?;

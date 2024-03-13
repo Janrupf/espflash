@@ -27,7 +27,7 @@ mod stubs;
 
 pub(crate) const CHECKSUM_INIT: u8 = 0xEF;
 pub(crate) const FLASH_SECTOR_SIZE: usize = 0x1000;
-pub(crate) const FLASH_WRITE_SIZE: usize = 0x400;
+pub(crate) const FLASH_WRITE_SIZE: usize = 0x4000;
 
 const CHIP_DETECT_MAGIC_REG_ADDR: u32 = 0x40001000;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -349,6 +349,8 @@ pub struct Flasher {
     spi_params: SpiAttachParams,
     /// Indicate RAM stub loader is in use
     use_stub: bool,
+    /// Whether to encrypt the flash
+    encrypt_flash: bool,
 }
 
 impl Flasher {
@@ -358,10 +360,12 @@ impl Flasher {
         speed: Option<u32>,
         use_stub: bool,
         use_compression: bool,
+        encrypt_flash: bool,
     ) -> Result<Self, Error> {
         // Establish a connection to the device using the default baud rate of 115,200
         // and timeout of 3 seconds.
-        let mut connection = Connection::new(serial, port_info, use_compression);
+        // Compression is also only available when encryption is disabled.
+        let mut connection = Connection::new(serial, port_info, use_compression && !encrypt_flash);
         connection.begin()?;
         connection.set_timeout(DEFAULT_TIMEOUT)?;
 
@@ -375,6 +379,7 @@ impl Flasher {
             flash_size: FlashSize::_4Mb,
             spi_params: SpiAttachParams::default(),
             use_stub,
+            encrypt_flash,
         };
 
         // Load flash stub if enabled
@@ -407,9 +412,12 @@ impl Flasher {
     }
 
     pub fn disable_watchdog(&mut self) -> Result<(), Error> {
-        let mut target = self
-            .chip
-            .flash_target(self.spi_params, self.flash_size, self.use_stub);
+        let mut target = self.chip.flash_target(
+            self.spi_params,
+            self.flash_size,
+            self.use_stub,
+            self.encrypt_flash,
+        );
         target.begin(&mut self.connection).flashing()?;
         Ok(())
     }
@@ -542,6 +550,7 @@ impl Flasher {
                     block_size: FLASH_WRITE_SIZE as u32,
                     size: 0,
                     blocks: 0,
+                    encrypt: false,
                 })?;
             }
             _ => {
@@ -733,9 +742,12 @@ impl Flasher {
     ) -> Result<(), Error> {
         let image = ElfFirmwareImage::try_from(elf_data)?;
 
-        let mut target = self
-            .chip
-            .flash_target(self.spi_params, self.flash_size, self.use_stub);
+        let mut target = self.chip.flash_target(
+            self.spi_params,
+            self.flash_size,
+            self.use_stub,
+            self.encrypt_flash,
+        );
         target.begin(&mut self.connection).flashing()?;
 
         // The ESP8266 does not have readable major/minor revision numbers, so we have
@@ -788,9 +800,12 @@ impl Flasher {
             data: Cow::from(data),
         };
 
-        let mut target = self
-            .chip
-            .flash_target(self.spi_params, self.flash_size, self.use_stub);
+        let mut target = self.chip.flash_target(
+            self.spi_params,
+            self.flash_size,
+            self.use_stub,
+            self.encrypt_flash,
+        );
         target.begin(&mut self.connection).flashing()?;
         target.write_segment(&mut self.connection, segment, &mut progress)?;
         target.finish(&mut self.connection, true).flashing()?;

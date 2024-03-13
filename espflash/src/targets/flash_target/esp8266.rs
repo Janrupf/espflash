@@ -25,6 +25,7 @@ impl FlashTarget for Esp8266Target {
             block_size: FLASH_WRITE_SIZE as u32,
             offset: 0,
             supports_encryption: false,
+            encrypt: false,
         })?;
 
         Ok(())
@@ -50,6 +51,7 @@ impl FlashTarget for Esp8266Target {
                     block_size: FLASH_WRITE_SIZE as u32,
                     offset: addr,
                     supports_encryption: false,
+                    encrypt: false,
                 })
             },
         )?;

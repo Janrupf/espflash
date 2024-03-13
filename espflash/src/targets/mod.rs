@@ -109,10 +109,17 @@ impl Chip {
         spi_params: SpiAttachParams,
         flash_size: FlashSize,
         use_stub: bool,
+        encrypt_flash: bool,
     ) -> Box<dyn FlashTarget> {
         match self {
             Chip::Esp8266 => Box::new(Esp8266Target::new()),
-            _ => Box::new(Esp32Target::new(*self, spi_params, flash_size, use_stub)),
+            _ => Box::new(Esp32Target::new(
+                *self,
+                spi_params,
+                flash_size,
+                use_stub,
+                encrypt_flash,
+            )),
         }
     }
 

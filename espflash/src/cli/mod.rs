@@ -59,11 +59,13 @@ pub struct ConnectArgs {
     #[arg(long)]
     pub no_stub: bool,
     /// Don't compress the application while flashing
-    ///
-    /// This is useful to work around errors when running the
-    /// FlashDeflateBegin command on some devices.
     #[arg(long)]
     pub dont_compress: bool,
+    /// Encrypt the flash when flashing
+    ///
+    /// Only valid if flash encryption is in development mode.
+    #[arg(long)]
+    pub encrypt: bool,
 }
 
 /// Generate completions for the given shell
@@ -210,6 +212,7 @@ pub fn connect(args: &ConnectArgs, config: &Config) -> Result<Flasher> {
         args.baud,
         !args.no_stub,
         !args.dont_compress,
+        args.encrypt,
     )?)
 }
 

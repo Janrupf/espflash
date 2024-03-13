@@ -296,7 +296,7 @@ impl Connection {
     }
 
     /// Determine whether to use compression when flashing
-    pub fn should_use_compression_if_available(&self) -> bool {
+    pub fn should_use_compression(&self) -> bool {
         self.use_compression
     }
 }
